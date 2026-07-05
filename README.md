@@ -1,8 +1,8 @@
-# Overseer
+# AI-Spy
 
-**A self-hosted command console for every AI agent, harness, and local model on your machine.**
+**Recon and command console for every AI agent, harness, and local model on your machine.**
 
-Overseer scans your machine for the AI tools you already run — coding agents (Claude Code, Codex,
+AI-Spy scans your machine for the AI tools you already run — coding agents (Claude Code, Codex,
 Copilot), local model runtimes (Ollama, LM Studio), IDEs, and dozens of others — and gives you one
 green-phosphor terminal to see what you use, what you spend, what's gone stale, and to actually
 *drive* them: launch local models, swap which model each runs, chat with any agent, and have Claude
@@ -17,14 +17,14 @@ Zero runtime dependencies. Plain Node (v18+). Your data never leaves your machin
 ## Quick start
 
 ```sh
-git clone https://github.com/<you>/overseer.git
-cd overseer
+git clone https://github.com/<you>/ai-spy.git
+cd ai-spy
 node server.mjs
 ```
 
 Open **http://localhost:4177**. That's it — no build step, no `npm install`.
 
-To make it reachable on your LAN as `http://overseer.local` (and, if you use Tailscale, across your
+To make it reachable on your LAN as `http://ai-spy.local` (and, if you use Tailscale, across your
 tailnet), see [Networking](#networking) below.
 
 ---
@@ -61,7 +61,7 @@ deciding which plan tier you need).
 - Optional, auto-detected if present: Claude Code (`claude`), Codex (`codex`), Ollama, LM Studio (`lms`),
   and any of ~50 other AI tools.
 
-Nothing is required to *view* the dashboards — Overseer just reports on whatever it finds.
+Nothing is required to *view* the dashboards — AI-Spy just reports on whatever it finds.
 
 ---
 
@@ -71,9 +71,9 @@ By default the server binds `0.0.0.0` on port **4177** and (best-effort) port **
 it by hostname with no port. A Host-header allowlist keeps DNS-rebinding protection despite the wider
 bind — only requests addressed to this machine's own names/IPs are served.
 
-- **LAN:** a built-in zero-dependency mDNS responder advertises `overseer.local`. Set the alias with
-  `AGENTOS_HOST=overseer node server.mjs` (defaults to `agentos`).
-- **Tailscale:** name the node to match (`tailscale set --hostname overseer`) and MagicDNS resolves it
+- **LAN:** a built-in zero-dependency mDNS responder advertises `ai-spy.local`. Set the alias with
+  `AGENTOS_HOST=ai-spy node server.mjs` (defaults to `agentos`).
+- **Tailscale:** name the node to match (`tailscale set --hostname ai-spy`) and MagicDNS resolves it
   across your tailnet.
 
 If you'd rather keep it local-only, run with `PORT=4177` and just use `http://localhost:4177`.
@@ -105,7 +105,7 @@ back to a single-step route on the best available local model.
 
 ## Security
 
-Overseer is designed to run on a machine you trust, for a single user:
+AI-Spy is designed to run on a machine you trust, for a single user:
 
 - **API keys** are stored server-side in `config/keys.json` (plaintext, **gitignored**, never served to
   the browser, masked in the API as `••••abcd`). Treat the host as trusted.
