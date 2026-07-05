@@ -1,0 +1,22 @@
+{
+  "name": "overseer-console",
+  "version": "1.0.0",
+  "description": "Self-hosted command console for every AI agent, harness, and local model on your machine — usage, spend, capability inventory, network discovery, and Claude-orchestrated routing. Zero dependencies.",
+  "type": "module",
+  "bin": {
+    "overseer": "server.mjs"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "report": "node agentos.mjs report"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "ai", "agents", "llm", "ollama", "lm-studio", "claude", "dashboard",
+    "orchestration", "self-hosted", "usage-tracking", "mcp"
+  ],
+  "license": "MIT",
+  "private": false
+}
