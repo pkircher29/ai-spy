@@ -47,6 +47,12 @@ function selfIdentities() {
   return { ips, magic, names };
 }
 const SELF = selfIdentities();
+const START_TIME = Date.now();
+
+// Keep the process alive through stray errors in request handlers, child processes, mDNS,
+// or background jobs. The watchdog handles a genuinely wedged process; these handle transients.
+process.on('uncaughtException', (e) => console.error('[uncaughtException]', e?.stack || e));
+process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e?.stack || e));
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -183,6 +189,10 @@ const requestHandler = async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const path = url.pathname;
   try {
+    if (path === '/api/health' && req.method === 'GET') {
+      const m = process.memoryUsage();
+      return json(res, 200, { ok: true, pid: process.pid, uptimeSec: Math.round((Date.now() - START_TIME) / 1000), rssMB: Math.round(m.rss / 1048576), ts: new Date().toISOString() });
+    }
     if (path === '/api/snapshot' && req.method === 'GET') {
       return json(res, 200, await getSnapshot({ force: url.searchParams.get('refresh') === '1' }));
     }

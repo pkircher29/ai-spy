@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node server.mjs",
+    "watch": "node watchdog.mjs",
     "report": "node agentos.mjs report"
   },
   "engines": {

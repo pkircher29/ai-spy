@@ -78,6 +78,22 @@ bind — only requests addressed to this machine's own names/IPs are served.
 
 If you'd rather keep it local-only, run with `PORT=4177` and just use `http://localhost:4177`.
 
+### Keeping it running
+
+For an always-on box, run the **watchdog** instead of the server directly:
+
+```sh
+node watchdog.mjs        # or: npm run watch
+```
+
+It supervises `server.mjs` and restarts it if it **crashes** (exponential backoff) or **hangs**
+(three failed `/api/health` polls in a row → force restart). Server output flows through to the
+watchdog console, and events are logged to `data/watchdog.log`. The server itself also swallows
+stray request/job errors (`uncaughtException` / `unhandledRejection` are logged, not fatal).
+
+To survive reboots, launch the watchdog from a Startup shortcut (Win+R → `shell:startup`, add a
+shortcut to `node <path>\watchdog.mjs`) or register it as a scheduled task at logon.
+
 ---
 
 ## Configuration
