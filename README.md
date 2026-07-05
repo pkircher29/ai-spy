@@ -71,8 +71,8 @@ By default the server binds `0.0.0.0` on port **4177** and (best-effort) port **
 it by hostname with no port. A Host-header allowlist keeps DNS-rebinding protection despite the wider
 bind — only requests addressed to this machine's own names/IPs are served.
 
-- **LAN:** a built-in zero-dependency mDNS responder advertises `ai-spy.local`. Set the alias with
-  `AGENTOS_HOST=ai-spy node server.mjs` (defaults to `agentos`).
+- **LAN:** a built-in zero-dependency mDNS responder advertises `ai-spy.local` (the default). Change
+  the alias with `AISPY_HOST=myname node server.mjs`.
 - **Tailscale:** name the node to match (`tailscale set --hostname ai-spy`) and MagicDNS resolves it
   across your tailnet.
 

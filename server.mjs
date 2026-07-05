@@ -26,7 +26,7 @@ const ROOT = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(ROOT, 'public');
 const DATA = join(ROOT, 'data');
 const PORT = +(process.env.PORT || 4177);
-const HOSTNAME_ALIAS = process.env.AGENTOS_HOST || 'agentos';
+const HOSTNAME_ALIAS = process.env.AISPY_HOST || process.env.AGENTOS_HOST || 'ai-spy';
 
 // Discover our own addresses so the Host allowlist can permit intended names while still
 // blocking DNS-rebinding (arbitrary Host headers). Allow by hostname, ignoring port.
