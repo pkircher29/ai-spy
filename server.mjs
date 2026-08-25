@@ -103,6 +103,55 @@ let benchJobs = new Map();
 let benchSeq = 0;
 let chatJobs = new Map();
 let chatSeq = 0;
+const consensusJobs = new Map();
+let consensusSeq = 0;
+
+function startConsensusJob(question, engines) {
+  const id = String(++consensusSeq);
+  const job = { id, status: 'running', startedAt: new Date().toISOString(), question, output: '', file: null };
+  consensusJobs.set(id, job);
+  const args = [join(ROOT, 'agentos.mjs'), 'consensus', question];
+  if (engines) args.push(engines);
+  const child = spawn(process.execPath, args, { cwd: ROOT, windowsHide: true });
+  child.stdout.on('data', (d) => { job.output += d; });
+  child.stderr.on('data', (d) => { job.output += d; });
+  const timer = setTimeout(() => { try { child.kill(); } catch {} }, 25 * 60 * 1000);
+  child.on('close', (code) => {
+    clearTimeout(timer);
+    job.status = code === 0 ? 'done' : 'failed';
+    job.finishedAt = new Date().toISOString();
+    const m = job.output.match(/saved: (.*)/);
+    if (m) job.file = m[1].trim();
+  });
+  return job;
+}
+
+function listConsensusRuns() {
+  const dir = join(DATA, 'consensus');
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).filter(f => f.endsWith('.md')).sort().reverse().map(f => ({
+    id: f.replace('.md', ''),
+    content: readFileSync(join(dir, f), 'utf8'),
+  }));
+}
+
+function listHistory() {
+  if (!existsSync(DATA)) return [];
+  return readdirSync(DATA)
+    .filter(f => /^snapshot-\d{4}-\d{2}-\d{2}\.json$/.test(f))
+    .sort()
+    .map(f => {
+      try {
+        const s = JSON.parse(readFileSync(join(DATA, f), 'utf8'));
+        return {
+          date: f.slice(9, 19),
+          apiCostUSD: s.claude?.apiEquivalentCostUSD ?? 0,
+          sessions: s.claude?.sessions ?? 0,
+          userTurns: s.claude?.userTurns ?? 0,
+        };
+      } catch { return null; }
+    }).filter(Boolean);
+}
 
 const requestHandler = async (req, res) => {
   if (req.method === 'OPTIONS') {
@@ -128,10 +177,32 @@ const requestHandler = async (req, res) => {
       return json(res, 200, { ok: true, pid: process.pid, uptimeSec: Math.floor((Date.now() - START_TIME) / 1000), rssMB: Math.round(process.memoryUsage().rss / 1048576), ts: new Date().toISOString() });
     }
     if (path === '/api/snapshot' && req.method === 'GET') {
-      return json(res, 200, await getSnapshot());
+      return json(res, 200, getSnapshot());
     }
     if (path === '/api/snapshot/refresh' && req.method === 'POST') {
-      return json(res, 200, await getSnapshot({ force: true }));
+      return json(res, 200, getSnapshot({ force: true }));
+    }
+    if (path === '/api/history' && req.method === 'GET') {
+      return json(res, 200, listHistory());
+    }
+    if (path === '/api/recommendations' && req.method === 'GET') {
+      let md = '';
+      try { md = readFileSync(join(DATA, 'recommendations.md'), 'utf8'); } catch {}
+      return json(res, 200, { markdown: md });
+    }
+    if (path === '/api/consensus' && req.method === 'GET') {
+      return json(res, 200, { runs: listConsensusRuns(), jobs: [...consensusJobs.values()].map(j => ({ ...j, output: undefined })) });
+    }
+    if (path === '/api/consensus' && req.method === 'POST') {
+      const { question, engines } = await readBody(req);
+      if (!question || typeof question !== 'string') return json(res, 400, { error: 'question required' });
+      const job = startConsensusJob(question, engines);
+      return json(res, 202, { jobId: job.id });
+    }
+    if (path.startsWith('/api/consensus/jobs/') && req.method === 'GET') {
+      const job = consensusJobs.get(path.split('/').pop());
+      if (!job) return json(res, 404, { error: 'no such job' });
+      return json(res, 200, job);
     }
     if (path === '/api/capabilities' && req.method === 'GET') {
       if (!capsCache || url.searchParams.get('refresh') === '1' || Date.now() - new Date(capsCache.generatedAt) > 5 * 60 * 1000) {
@@ -184,7 +255,7 @@ const requestHandler = async (req, res) => {
     if (path === '/api/skills/deploy' && req.method === 'POST') {
       const body = await readBody(req);
       const resDeploy = deploySkillToHarness(body);
-      capsCache = null; // Invalidate cache so Perks reflect changes
+      capsCache = null;
       return json(res, 200, resDeploy);
     }
     if (path === '/api/skills/mcp' && req.method === 'GET') {
