@@ -81,16 +81,16 @@ function readBody(req) {
 }
 
 let snapshotCache = null;
-let snapshotPromise = null;
-async function getSnapshot({ force = false } = {}) {
+function getSnapshot({ force = false } = {}) {
   if (!force && snapshotCache && Date.now() - snapshotCache.time < 30000) return snapshotCache.data;
-  if (snapshotPromise && !force) return snapshotPromise;
-  snapshotPromise = buildSnapshot().then(d => {
+  try {
+    const d = buildSnapshot();
     snapshotCache = { time: Date.now(), data: d };
-    snapshotPromise = null;
     return d;
-  }).catch(e => { snapshotPromise = null; throw e; });
-  return snapshotPromise;
+  } catch (e) {
+    if (snapshotCache) return snapshotCache.data;
+    throw e;
+  }
 }
 
 let capsCache = null;
