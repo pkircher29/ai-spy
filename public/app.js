@@ -2,7 +2,7 @@
 const $ = (sel, el = document) => el.querySelector(sel);
 const main = $('#main');
 
-const state = { snap: null, history: [], recs: '', consensus: { runs: [], jobs: [] }, caps: null, net: null, usageLive: null, agents: null, orch: null, keys: null,
+const state = { snap: null, skills: [], mcpServers: [], skillFilter: "all", agora: { rooms: [], currentRoom: "general-agora" }, history: [], recs: '', consensus: { runs: [], jobs: [] }, caps: null, net: null, usageLive: null, agents: null, orch: null, keys: null,
   term: { targets: null, agentId: null, model: null, threads: {}, pending: false },
   budget: null, benchmarks: null, orchRuns: null, harness: null,
   vats: { plan: null, catalog: null, editing: false } };
@@ -201,6 +201,142 @@ function mdRender(md) {
 
 /* ---------- pages ---------- */
 const pages = {
+  
+  skills(snap) {
+    const allSkills = state.skills || [];
+    const filterHarness = state.skillFilter || 'all';
+    const filtered = filterHarness === 'all' ? allSkills : allSkills.filter(s => s.sourceHarness === filterHarness);
+    
+    const filterButtons = ['all', 'hermes', 'claude', 'gemini', 'opencode', 'library'].map(h => 
+      `<button class="btn mini ${filterHarness === h ? 'active' : ''}" data-skill-filter="${h}">${h.toUpperCase()}</button>`
+    ).join(' ');
+
+    const cards = filtered.map(s => `
+      <div class="skill-card">
+        <div>
+          <div class="skill-head">
+            <div class="skill-name">${esc(s.name)}</div>
+            <span class="skill-harness-badge ${esc(s.sourceHarness)}">${esc(s.sourceHarness)}</span>
+          </div>
+          <div class="skill-desc">${esc(s.description || 'Cross-agent skill module.')}</div>
+        </div>
+        <div class="skill-actions">
+          <button class="btn mini" data-skill-inspect="${esc(s.key)}" data-skill-harness="${esc(s.sourceHarness)}">Inspect / Edit</button>
+          <select class="mini" data-deploy-target-for="${esc(s.key)}" data-source-harness="${esc(s.sourceHarness)}">
+            <option value="">Deploy to...</option>
+            <option value="hermes">Hermes Agent (~/.hermes)</option>
+            <option value="claude">Claude Code (~/.claude)</option>
+            <option value="gemini">Gemini / AGY (~/.gemini)</option>
+            <option value="opencode">OpenCode (~/.opencode)</option>
+            <option value="library">AI-Spy Vault</option>
+          </select>
+          <button class="btn mini" data-skill-deploy="${esc(s.key)}" data-source-harness="${esc(s.sourceHarness)}">Deploy 🚀</button>
+        </div>
+      </div>
+    `).join('') || '<div class="strip-meta">No skills found for this filter.</div>';
+
+    const mcpList = (state.mcpServers || []).map(m => `
+      <tr>
+        <td><b>${esc(m.name)}</b></td>
+        <td><span class="skill-harness-badge ${esc(m.harness)}">${esc(m.harness)}</span></td>
+        <td><code>${esc(m.command || 'custom')}</code></td>
+        <td><button class="btn mini" data-copy-mcp="${esc(m.name)}">Copy Config</button></td>
+      </tr>
+    `).join('') || '<tr><td colspan="4">No MCP servers detected.</td></tr>';
+
+    return `
+      <h1>Universal Skill Hub ⚡</h1>
+      <p class="h-sub">Central cross-agent skill library. Share, transmute, and deploy skills & MCP tools across Claude, Hermes, Gemini, and OpenCode seamlessly.</p>
+      
+      <div class="skill-toolbar">
+        <div><b>Filter:</b> ${filterButtons}</div>
+        <div style="margin-left:auto">
+          <button class="btn" id="create-skill-btn">+ Create New Skill</button>
+        </div>
+      </div>
+
+      <h2>Available Skills Catalog (${filtered.length} of ${allSkills.length})</h2>
+      <div class="skill-grid">${cards}</div>
+
+      <h2 style="margin-top:32px">Cross-Harness MCP Server Directory</h2>
+      <div class="panel">
+        <table>
+          <tr><th>Server Name</th><th>Configured In</th><th>Command</th><th>Actions</th></tr>
+          ${mcpList}
+        </table>
+      </div>
+    `;
+  },
+
+  agora(snap) {
+    const agoraState = state.agora || { rooms: [], currentRoom: 'general-agora' };
+    const rooms = agoraState.rooms || [];
+    const activeRoom = rooms.find(r => r.id === agoraState.currentRoom) || rooms[0] || {
+      id: 'general-agora',
+      title: 'Central Agora',
+      topic: 'Cross-agent brainstorming',
+      participants: ['claude-code', 'hermes'],
+      messages: []
+    };
+
+    const roomItems = rooms.map(r => `
+      <li class="agora-room-item ${r.id === activeRoom.id ? 'active' : ''}" data-room-id="${esc(r.id)}">
+        <b>${esc(r.title)}</b>
+        <span class="strip-meta">${esc(r.participants.join(', '))}</span>
+      </li>
+    `).join('');
+
+    const messages = (activeRoom.messages || []).map(m => {
+      const cls = m.sender.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+      return `
+        <div class="agora-msg ${cls} ${m.role}">
+          <div class="agora-msg-header">
+            <b>[${esc(m.sender)}]</b>
+            <span>${esc(new Date(m.timestamp).toLocaleTimeString())}</span>
+          </div>
+          <div class="agora-msg-text">${esc(m.text)}</div>
+        </div>
+      `;
+    }).join('') || '<div class="strip-meta">Room is empty. Send a message or trigger an agent turn!</div>';
+
+    return `
+      <h1>Agent Agora 💬</h1>
+      <p class="h-sub">Inter-Agent Multi-Model Round Table & Debate Chamber. Claude, Hermes, Codex, Ollama, and Gemini converse, collaborate, and review code together.</p>
+
+      <div class="agora-layout">
+        <div class="agora-sidebar">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <b>Discussion Rooms</b>
+            <button class="btn mini" id="new-room-btn">+ New</button>
+          </div>
+          <ul class="agora-room-list">${roomItems}</ul>
+        </div>
+
+        <div class="agora-main">
+          <div class="agora-header">
+            <div>
+              <div style="font-size:18px; font-weight:bold; color:var(--phos-hi);">${esc(activeRoom.title)}</div>
+              <div class="strip-meta">Topic: ${esc(activeRoom.topic)} · Participants: <b>${esc(activeRoom.participants.join(', '))}</b></div>
+            </div>
+            <div class="agora-btn-row">
+              <button class="btn mini" id="agora-next-turn">▶ Next Agent Turn</button>
+              <button class="btn mini" id="agora-auto-debate">⚡ 3-Turn Debate</button>
+            </div>
+          </div>
+
+          <div class="agora-transcript" id="agora-transcript">${messages}</div>
+
+          <div class="agora-controls">
+            <div class="agora-input-row">
+              <input id="agora-msg-input" placeholder="Inject human perspective or ask a question to all agents..." />
+              <button class="btn" id="agora-send-btn">Send</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
   overview(snap) {
     const d = derive(snap);
     const maxMonth = Math.max(...Object.values(d.cc.byMonth || {}).map(v => v.apiCostUSD || 0), 1);
@@ -650,6 +786,282 @@ function currentPage() {
   return pages[h] ? h : 'overview';
 }
 
+
+function wireSkills() {
+  document.querySelectorAll('[data-skill-filter]').forEach(b => b.addEventListener('click', () => {
+    state.skillFilter = b.dataset.skillFilter;
+    render();
+  }));
+
+  // Deploy button
+  document.querySelectorAll('[data-skill-deploy]').forEach(b => b.addEventListener('click', async () => {
+    const key = b.dataset.skillDeploy;
+    const fromHarness = b.dataset.sourceHarness;
+    const sel = document.querySelector(`[data-deploy-target-for="${key}"]`);
+    const toHarness = sel ? sel.value : null;
+    if (!toHarness) return alert('Select a target harness from the dropdown first.');
+
+    b.disabled = true;
+    b.textContent = 'deploying…';
+    try {
+      const res = await post('/api/skills/deploy', { skillKey: key, fromHarness, toHarness });
+      if (res.ok) {
+        alert(`Skill "${key}" successfully transmuted & deployed to ${toHarness.toUpperCase()}! Target path: ${res.destPath}`);
+        state.skills = (await api('/api/skills/library')).skills;
+        render();
+      } else {
+        alert('Deploy failed: ' + (res.error || 'unknown error'));
+        b.disabled = false;
+        b.textContent = 'Deploy 🚀';
+      }
+    } catch (e) {
+      alert('Deploy error: ' + e.message);
+      b.disabled = false;
+      b.textContent = 'Deploy 🚀';
+    }
+  }));
+
+  // Inspect / Edit modal
+  document.querySelectorAll('[data-skill-inspect]').forEach(b => b.addEventListener('click', () => {
+    const key = b.dataset.skillInspect;
+    const skill = (state.skills || []).find(s => s.key === key);
+    if (!skill) return;
+
+    const modal = document.getElementById('modal-container');
+    modal.innerHTML = `
+      <div class="modal-overlay">
+        <div class="modal-window">
+          <div class="modal-head">
+            <b>Inspect & Edit Skill: ${esc(skill.name)}</b>
+            <button class="btn mini" id="modal-close-btn">✕</button>
+          </div>
+          <div class="modal-body">
+            <div>
+              <label><b>Skill Name:</b></label>
+              <input id="modal-skill-name" value="${esc(skill.name)}" style="width:100%" />
+            </div>
+            <div>
+              <label><b>Description:</b></label>
+              <input id="modal-skill-desc" value="${esc(skill.description || '')}" style="width:100%" />
+            </div>
+            <div style="flex-grow:1; display:flex; flex-direction:column;">
+              <label><b>Skill Markdown / Prompt Content:</b></label>
+              <textarea id="modal-skill-content" style="flex-grow:1; min-height:220px; font-family:var(--mono)">${esc(skill.rawContent)}</textarea>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn mini" id="modal-close-btn2">Cancel</button>
+            <button class="btn" id="modal-save-skill">Save to Vault</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const closeModal = () => { modal.innerHTML = ''; };
+    document.getElementById('modal-close-btn')?.addEventListener('click', closeModal);
+    document.getElementById('modal-close-btn2')?.addEventListener('click', closeModal);
+
+    document.getElementById('modal-save-skill')?.addEventListener('click', async () => {
+      const name = document.getElementById('modal-skill-name').value.trim();
+      const description = document.getElementById('modal-skill-desc').value.trim();
+      const content = document.getElementById('modal-skill-content').value;
+      const res = await post('/api/skills/save', { key: skill.key, name, description, content, targetHarness: 'library' });
+      if (res.ok) {
+        alert('Skill saved to Vault!');
+        closeModal();
+        state.skills = (await api('/api/skills/library')).skills;
+        render();
+      } else {
+        alert('Save failed: ' + (res.error || ''));
+      }
+    });
+  }));
+
+  // Create Skill button
+  document.getElementById('create-skill-btn')?.addEventListener('click', () => {
+    const modal = document.getElementById('modal-container');
+    modal.innerHTML = `
+      <div class="modal-overlay">
+        <div class="modal-window">
+          <div class="modal-head">
+            <b>Create Universal Skill</b>
+            <button class="btn mini" id="modal-close-btn">✕</button>
+          </div>
+          <div class="modal-body">
+            <div>
+              <label><b>Skill Key (slug):</b></label>
+              <input id="modal-skill-key" placeholder="e.g. quantum-refactor" style="width:100%" />
+            </div>
+            <div>
+              <label><b>Skill Title:</b></label>
+              <input id="modal-skill-name" placeholder="e.g. Quantum Code Refactorer" style="width:100%" />
+            </div>
+            <div>
+              <label><b>Description:</b></label>
+              <input id="modal-skill-desc" placeholder="What does this skill do and when should agents call it?" style="width:100%" />
+            </div>
+            <div style="flex-grow:1; display:flex; flex-direction:column;">
+              <label><b>Skill Instructions / Prompts (Markdown):</b></label>
+              <textarea id="modal-skill-content" placeholder="# Instructions
+
+1. Analyze code
+2. Provide optimizations" style="flex-grow:1; min-height:180px; font-family:var(--mono)"></textarea>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn mini" id="modal-close-btn2">Cancel</button>
+            <button class="btn" id="modal-create-skill-submit">Create & Save</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const closeModal = () => { modal.innerHTML = ''; };
+    document.getElementById('modal-close-btn')?.addEventListener('click', closeModal);
+    document.getElementById('modal-close-btn2')?.addEventListener('click', closeModal);
+
+    document.getElementById('modal-create-skill-submit')?.addEventListener('click', async () => {
+      const key = document.getElementById('modal-skill-key').value.trim();
+      const name = document.getElementById('modal-skill-name').value.trim();
+      const description = document.getElementById('modal-skill-desc').value.trim();
+      const content = document.getElementById('modal-skill-content').value;
+      if (!key || !name) return alert('Key and Name are required.');
+
+      const res = await post('/api/skills/save', { key, name, description, content, targetHarness: 'library' });
+      if (res.ok) {
+        alert('Skill created successfully in Vault!');
+        closeModal();
+        state.skills = (await api('/api/skills/library')).skills;
+        render();
+      } else {
+        alert('Create failed: ' + (res.error || ''));
+      }
+    });
+  });
+}
+
+function wireAgora() {
+  const agoraState = state.agora || { rooms: [], currentRoom: 'general-agora' };
+  
+  // Select room
+  document.querySelectorAll('.agora-room-item').forEach(el => el.addEventListener('click', () => {
+    agoraState.currentRoom = el.dataset.roomId;
+    render();
+  }));
+
+  // Create room modal
+  document.getElementById('new-room-btn')?.addEventListener('click', () => {
+    const modal = document.getElementById('modal-container');
+    modal.innerHTML = `
+      <div class="modal-overlay">
+        <div class="modal-window">
+          <div class="modal-head">
+            <b>Open New Agora Round Table</b>
+            <button class="btn mini" id="modal-close-btn">✕</button>
+          </div>
+          <div class="modal-body">
+            <div>
+              <label><b>Room Title:</b></label>
+              <input id="modal-room-title" placeholder="e.g. Architecture Review" style="width:100%" />
+            </div>
+            <div>
+              <label><b>Discussion Topic / Goal:</b></label>
+              <textarea id="modal-room-topic" placeholder="e.g. Discuss transitioning our API to async streaming..." style="width:100%; min-height:80px;"></textarea>
+            </div>
+            <div>
+              <label><b>Participant Agents:</b></label>
+              <div style="display:flex; gap:12px; margin-top:6px; flex-wrap:wrap;">
+                <label><input type="checkbox" class="agora-part-chk" value="claude-code" checked> Claude Code</label>
+                <label><input type="checkbox" class="agora-part-chk" value="hermes" checked> Hermes Agent</label>
+                <label><input type="checkbox" class="agora-part-chk" value="codex" checked> Codex</label>
+                <label><input type="checkbox" class="agora-part-chk" value="ollama" checked> Ollama (Local)</label>
+                <label><input type="checkbox" class="agora-part-chk" value="gemini"> Gemini / AGY</label>
+              </div>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn mini" id="modal-close-btn2">Cancel</button>
+            <button class="btn" id="modal-create-room-submit">Open Room</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const closeModal = () => { modal.innerHTML = ''; };
+    document.getElementById('modal-close-btn')?.addEventListener('click', closeModal);
+    document.getElementById('modal-close-btn2')?.addEventListener('click', closeModal);
+
+    document.getElementById('modal-create-room-submit')?.addEventListener('click', async () => {
+      const title = document.getElementById('modal-room-title').value.trim();
+      const topic = document.getElementById('modal-room-topic').value.trim();
+      const participants = [...document.querySelectorAll('.agora-part-chk:checked')].map(c => c.value);
+      if (!title || !topic) return alert('Title and Topic required.');
+
+      const newRoom = await post('/api/agora/rooms', { title, topic, participants });
+      agoraState.rooms = (await api('/api/agora/rooms')).rooms;
+      agoraState.currentRoom = newRoom.id;
+      closeModal();
+      render();
+    });
+  });
+
+  // Next agent turn
+  const nextBtn = document.getElementById('agora-next-turn');
+  if (nextBtn) {
+    nextBtn.addEventListener('click', async () => {
+      nextBtn.disabled = true;
+      nextBtn.textContent = 'Agent Thinking…';
+      try {
+        await post('/api/agora/step', { roomId: agoraState.currentRoom });
+        agoraState.rooms = (await api('/api/agora/rooms')).rooms;
+        render();
+      } catch (e) {
+        alert('Step error: ' + e.message);
+      } finally {
+        nextBtn.disabled = false;
+        nextBtn.textContent = '▶ Next Agent Turn';
+      }
+    });
+  }
+
+  // 3-Turn auto debate
+  const debateBtn = document.getElementById('agora-auto-debate');
+  if (debateBtn) {
+    debateBtn.addEventListener('click', async () => {
+      debateBtn.disabled = true;
+      for (let round = 1; round <= 3; round++) {
+        debateBtn.textContent = `Debate Turn ${round}/3…`;
+        try {
+          await post('/api/agora/step', { roomId: agoraState.currentRoom });
+          agoraState.rooms = (await api('/api/agora/rooms')).rooms;
+          render();
+        } catch (e) {
+          console.error(e);
+          break;
+        }
+      }
+      debateBtn.disabled = false;
+      debateBtn.textContent = '⚡ 3-Turn Debate';
+    });
+  }
+
+  // Send human message
+  const sendHuman = async () => {
+    const inp = document.getElementById('agora-msg-input');
+    const text = inp ? inp.value.trim() : '';
+    if (!text) return;
+    inp.value = '';
+    await post('/api/agora/message', { roomId: agoraState.currentRoom, text, sender: 'You (Human)', role: 'human' });
+    agoraState.rooms = (await api('/api/agora/rooms')).rooms;
+    render();
+  };
+
+  document.getElementById('agora-send-btn')?.addEventListener('click', sendHuman);
+  document.getElementById('agora-msg-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendHuman();
+  });
+}
+
 function render() {
   const page = currentPage();
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('active', a.dataset.page === page));
@@ -674,6 +1086,8 @@ function render() {
     lanLink.textContent = 'sweeping 254 hosts…';
     try { state.net = await api('/api/network?lan=1'); render(); } catch { lanLink.textContent = 'sweep failed'; }
   });
+  if (page === 'skills') wireSkills();
+  if (page === 'agora') wireAgora();
   if (page === 'garage') wireGarage();
   if (page === 'command') wireCommand();
   if (page === 'perks') wirePerks();
@@ -965,6 +1379,9 @@ async function loadAll({ refresh = false } = {}) {
     state.benchmarks = (await api('/api/benchmark').catch(() => ({ results: {} }))).results;
     state.orchRuns = (await api('/api/orchestrate/runs').catch(() => ({ runs: [] }))).runs;
     state.harness = await api('/api/harness-usage').catch(() => null);
+    state.skills = (await api('/api/skills/library').catch(() => ({ skills: [] }))).skills;
+    state.mcpServers = (await api('/api/skills/mcp').catch(() => ({ servers: [] }))).servers;
+    state.agora.rooms = (await api('/api/agora/rooms').catch(() => ({ rooms: [] }))).rooms;
     setLive(true);
     render();
   } catch (e) {
