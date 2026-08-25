@@ -363,3 +363,66 @@ td code, .md code { color: var(--phos-hi); }
 .agora-btn-row {
   display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
 }
+
+/* ---------- Radio Multi-Turn Consensus & Follow-ups ---------- */
+.radio-run {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px; margin-bottom: 20px; overflow: hidden;
+}
+.radio-run-head {
+  padding: 12px 16px; background: var(--panel-2); border-bottom: 1px solid var(--line);
+  display: flex; justify-content: space-between; align-items: center; cursor: pointer;
+}
+.radio-run-title {
+  font-size: 16px; font-weight: bold; color: var(--phos-hi);
+}
+.radio-turn {
+  padding: 16px; border-bottom: 1px dashed var(--line);
+}
+.radio-turn:last-child {
+  border-bottom: none;
+}
+.radio-turn-title {
+  font-size: 14px; font-weight: bold; color: var(--phos); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+}
+.radio-turn-badge {
+  font-size: 11px; padding: 2px 6px; border-radius: 3px; background: var(--line); color: var(--phos-hi);
+}
+.engine-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-bottom: 14px;
+}
+.engine-card {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 12px;
+  display: flex; flex-direction: column;
+}
+.engine-card-head {
+  display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 12px; border-bottom: 1px solid rgba(59,255,119,0.15); padding-bottom: 4px;
+}
+.engine-card-body {
+  font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; color: #d0f0d8;
+}
+.suggested-box {
+  margin-top: 12px; padding: 10px 14px; background: rgba(59, 255, 119, 0.04); border: 1px solid rgba(59, 255, 119, 0.15); border-radius: 4px;
+}
+.suggested-title {
+  font-size: 12px; font-weight: bold; color: var(--phos-dim); margin-bottom: 6px; text-transform: uppercase;
+}
+.suggested-chips {
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+.suggested-chip {
+  font-size: 12px; background: var(--panel-2); border: 1px solid var(--line); color: var(--phos-hi);
+  padding: 4px 10px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;
+}
+.suggested-chip:hover {
+  background: var(--line); border-color: var(--phos); box-shadow: 0 0 6px rgba(59,255,119,0.3);
+}
+.followup-box {
+  padding: 14px 16px; background: var(--panel-2); border-top: 1px solid var(--line);
+  display: flex; gap: 8px; align-items: center;
+}
+.followup-input {
+  flex-grow: 1; font-family: var(--body); font-size: 13px; padding: 8px 12px; background: var(--bg); border: 1px solid var(--line); color: var(--phos); border-radius: 3px;
+}
+.followup-input:focus {
+  outline: none; border-color: var(--phos);
+}

@@ -458,15 +458,92 @@ const pages = {
       <div class="panel"><table><tr><th>Model</th><th>Runtime</th><th>Role</th><th class="num">Size</th><th class="num">First token</th><th class="num">Speed</th><th>Benched</th><th></th></tr>${body}</table></div>`;
   },
 
-  consensus() {
-    const runs = state.consensus.runs.map(r => `<details class="run"><summary>${esc(r.id)}</summary><pre>${esc(r.content)}</pre></details>`).join('')
-      || '<p class="h-sub">No runs yet.</p>';
-    const jobs = state.consensus.jobs.filter(j => j.status === 'running')
-      .map(j => `<div class="alert warn">Job ${j.id} running since ${esc(j.startedAt)} — "${esc(j.question.slice(0, 90))}…"</div>`).join('');
-    return `<h1>Radio</h1><p class="h-sub">Broadcast one question to every installed engine (Claude, Codex, local Qwen). Answers land below.</p>
-      <div class="ask"><input id="ask-q" placeholder="e.g. Should I move bulk coding work to Sonnet and keep Fable for architecture?" />
-      <button class="btn" id="ask-btn">Run engines</button></div>
-      ${jobs}${runs}`;
+    consensus() {
+    const runs = (state.consensus.runs || []).map(r => {
+      const turns = r.turns || [
+        {
+          turnIndex: 1,
+          question: r.originalQuestion || r.id,
+          rawMarkdown: r.content,
+          suggestedFollowups: [
+            'What are the concrete code implementation steps?',
+            'What performance or security trade-offs exist?',
+            'How can we test and verify this across our agent fleet?'
+          ]
+        }
+      ];
+
+      const turnsHtml = turns.map(t => {
+        let answersHtml = '';
+        if (t.answers && t.answers.length > 0) {
+          answersHtml = '<div class="engine-grid">' + t.answers.map(a => `
+            <div class="engine-card">
+              <div class="engine-card-head">
+                <span class="skill-harness-badge ${esc(a.engine)}">${esc(a.engine.toUpperCase())}</span>
+                <span>${a.ok ? `✓ ${a.seconds}s` : '<span class="badge dead">FAILED</span>'}</span>
+              </div>
+              <div class="engine-card-body">${esc(a.answer || a.error || '(no output)')}</div>
+            </div>
+          `).join('') + '</div>';
+        } else if (t.rawMarkdown) {
+          answersHtml = `<div class="panel" style="padding:12px"><pre style="margin:0; font-family:var(--mono); white-space:pre-wrap">${esc(t.rawMarkdown)}</pre></div>`;
+        }
+
+        const suggestedHtml = (t.suggestedFollowups && t.suggestedFollowups.length > 0) ? `
+          <div class="suggested-box">
+            <div class="suggested-title">💡 Suggested Follow-up Questions:</div>
+            <div class="suggested-chips">
+              ${t.suggestedFollowups.map(s => `
+                <button class="suggested-chip" data-run-id="${esc(r.id)}" data-suggest-q="${esc(s)}">${esc(s)} ➔</button>
+              `).join('')}
+            </div>
+          </div>
+        ` : '';
+
+        return `
+          <div class="radio-turn">
+            <div class="radio-turn-title">
+              <span class="radio-turn-badge">Turn ${t.turnIndex}</span>
+              <span>${esc(t.question)}</span>
+            </div>
+            ${answersHtml}
+            ${suggestedHtml}
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div class="radio-run">
+          <div class="radio-run-head">
+            <div class="radio-run-title">📻 ${esc(r.originalQuestion || r.id)}</div>
+            <span class="strip-meta">${turns.length} ${turns.length === 1 ? 'turn' : 'turns'} · ${esc((r.updatedAt || r.createdAt || '').slice(0, 16).replace('T', ' '))}</span>
+          </div>
+          <div class="radio-run-body">
+            ${turnsHtml}
+            <div class="followup-box">
+              <input class="followup-input" data-run-input="${esc(r.id)}" placeholder="Ask a follow-up question on this topic to all engines..." />
+              <button class="btn mini" data-followup-run="${esc(r.id)}">Broadcast Follow-up 📻</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('') || '<p class="h-sub">No consensus broadcast runs yet. Broadcast a question above to begin.</p>';
+
+    const jobs = (state.consensus.jobs || []).filter(j => j.status === 'running')
+      .map(j => `<div class="alert warn">Broadcasting to engines: "${esc(j.question.slice(0, 90))}…" (${esc(j.id)})</div>`).join('');
+
+    return `
+      <h1>Radio 📻</h1>
+      <p class="h-sub">Broadcast questions simultaneously to all AI engines (Claude Code, Hermes Agent, Codex, Ollama, Gemini) with deep-dive multi-turn follow-ups.</p>
+      
+      <div class="ask">
+        <input id="ask-q" placeholder="e.g. Should I move bulk coding work to Sonnet and keep Fable for architecture?" />
+        <button class="btn" id="ask-btn">Broadcast to Fleet 📻</button>
+      </div>
+      ${jobs}
+      <h2>Consensus Broadcast Threads</h2>
+      ${runs}
+    `;
   },
 
   report() {
@@ -1105,18 +1182,70 @@ function wireConsensus() {
     if (!q) return;
     $('#ask-btn').disabled = true;
     try {
-      const { jobId } = await api('/api/consensus', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ question: q }) });
+      const { jobId } = await post('/api/consensus', { question: q });
       pollJob(jobId);
+      state.consensus.jobs = state.consensus.jobs || [];
       state.consensus.jobs.push({ id: jobId, status: 'running', startedAt: new Date().toISOString(), question: q });
-      $('#ask-q').value = ''; // submitted — clear the draft so render doesn't restore it
+      $('#ask-q').value = '';
       render();
     } catch (e) {
-      alert('failed: ' + e.message);
+      alert('Broadcast failed: ' + e.message);
     } finally {
       const btn = $('#ask-btn');
       if (btn) btn.disabled = false;
     }
   });
+
+  // Wire suggested follow-up chips
+  document.querySelectorAll('[data-suggest-q]').forEach(chip => chip.addEventListener('click', async () => {
+    const runId = chip.dataset.runId;
+    const question = chip.dataset.suggestQ;
+    if (!runId || !question) return;
+
+    chip.disabled = true;
+    chip.textContent = 'Broadcasting follow-up…';
+    try {
+      const { jobId } = await post('/api/consensus/followup', { parentRunId: runId, question });
+      pollJob(jobId);
+      state.consensus.jobs = state.consensus.jobs || [];
+      state.consensus.jobs.push({ id: jobId, status: 'running', startedAt: new Date().toISOString(), question: `[Follow-up] ${question}` });
+      render();
+    } catch (e) {
+      alert('Follow-up broadcast failed: ' + e.message);
+      chip.disabled = false;
+    }
+  }));
+
+  // Wire follow-up input box & button
+  document.querySelectorAll('[data-followup-run]').forEach(btn => btn.addEventListener('click', async () => {
+    const runId = btn.dataset.followupRun;
+    const inp = document.querySelector(`[data-run-input="${runId}"]`);
+    const question = inp ? inp.value.trim() : '';
+    if (!question) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Broadcasting…';
+    try {
+      const { jobId } = await post('/api/consensus/followup', { parentRunId: runId, question });
+      pollJob(jobId);
+      state.consensus.jobs = state.consensus.jobs || [];
+      state.consensus.jobs.push({ id: jobId, status: 'running', startedAt: new Date().toISOString(), question: `[Follow-up] ${question}` });
+      if (inp) inp.value = '';
+      render();
+    } catch (e) {
+      alert('Follow-up failed: ' + e.message);
+      btn.disabled = false;
+      btn.textContent = 'Broadcast Follow-up 📻';
+    }
+  }));
+
+  document.querySelectorAll('[data-run-input]').forEach(inp => inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const runId = inp.dataset.runInput;
+      const btn = document.querySelector(`[data-followup-run="${runId}"]`);
+      if (btn) btn.click();
+    }
+  }));
 }
 
 async function pollJob(id) {

@@ -23,6 +23,7 @@ import { chatTargets, chatOnce } from './lib/chat.mjs';
 import { scanAllSkills, saveSkill, deploySkillToHarness, scanAllMcpServers, transmuteSkill } from './lib/skill-hub.mjs';
 import { loadRooms, saveRooms, getRoom, createRoom, postMessage, stepNextAgent } from './lib/agent-agora.mjs';
 import { hermesInventory, hermesUsage, getHermesGatewayState } from './lib/hermes.mjs';
+import { runConsensus, generateSuggestedFollowups } from './lib/consensus.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(ROOT, 'public');
@@ -106,33 +107,76 @@ let chatSeq = 0;
 const consensusJobs = new Map();
 let consensusSeq = 0;
 
-function startConsensusJob(question, engines) {
+function startConsensusJob(question, engines, parentRunId = null) {
   const id = String(++consensusSeq);
-  const job = { id, status: 'running', startedAt: new Date().toISOString(), question, output: '', file: null };
+  const job = { id, status: 'running', startedAt: new Date().toISOString(), question, parentRunId, output: '', file: null };
   consensusJobs.set(id, job);
-  const args = [join(ROOT, 'agentos.mjs'), 'consensus', question];
-  if (engines) args.push(engines);
-  const child = spawn(process.execPath, args, { cwd: ROOT, windowsHide: true });
-  child.stdout.on('data', (d) => { job.output += d; });
-  child.stderr.on('data', (d) => { job.output += d; });
-  const timer = setTimeout(() => { try { child.kill(); } catch {} }, 25 * 60 * 1000);
-  child.on('close', (code) => {
-    clearTimeout(timer);
-    job.status = code === 0 ? 'done' : 'failed';
-    job.finishedAt = new Date().toISOString();
-    const m = job.output.match(/saved: (.*)/);
-    if (m) job.file = m[1].trim();
-  });
+
+  runConsensus(question, { engines, parentRunId })
+    .then(r => {
+      job.status = 'done';
+      job.result = r;
+      job.file = r.file;
+      job.finishedAt = new Date().toISOString();
+    })
+    .catch(e => {
+      job.status = 'failed';
+      job.error = String(e.message || e);
+      job.finishedAt = new Date().toISOString();
+    });
+
   return job;
 }
 
 function listConsensusRuns() {
   const dir = join(DATA, 'consensus');
   if (!existsSync(dir)) return [];
-  return readdirSync(dir).filter(f => f.endsWith('.md')).sort().reverse().map(f => ({
-    id: f.replace('.md', ''),
-    content: readFileSync(join(dir, f), 'utf8'),
-  }));
+  const files = readdirSync(dir).sort().reverse();
+  const runs = [];
+  const seenIds = new Set();
+
+  for (const f of files) {
+    const id = f.replace(/\.(json|md)$/, '');
+    if (seenIds.has(id)) continue;
+    seenIds.add(id);
+
+    const jsonPath = join(dir, `${id}.json`);
+    const mdPath = join(dir, `${id}.md`);
+
+    if (existsSync(jsonPath)) {
+      try {
+        const data = JSON.parse(readFileSync(jsonPath, 'utf8'));
+        runs.push(data);
+        continue;
+      } catch {}
+    }
+
+    if (existsSync(mdPath)) {
+      try {
+        const content = readFileSync(mdPath, 'utf8');
+        runs.push({
+          id,
+          createdAt: id,
+          originalQuestion: id,
+          turns: [
+            {
+              turnIndex: 1,
+              question: id,
+              answers: [],
+              rawMarkdown: content,
+              suggestedFollowups: [
+                'What are the performance trade-offs?',
+                'Can you provide a concrete code example?',
+                'How should we structure unit tests for this?'
+              ]
+            }
+          ]
+        });
+      } catch {}
+    }
+  }
+
+  return runs;
 }
 
 function listHistory() {
@@ -198,6 +242,12 @@ const requestHandler = async (req, res) => {
       if (!question || typeof question !== 'string') return json(res, 400, { error: 'question required' });
       const job = startConsensusJob(question, engines);
       return json(res, 202, { jobId: job.id });
+    }
+    if (path === '/api/consensus/followup' && req.method === 'POST') {
+      const { parentRunId, question, engines } = await readBody(req);
+      if (!parentRunId || !question) return json(res, 400, { error: 'parentRunId and question required' });
+      const job = startConsensusJob(question, engines, parentRunId);
+      return json(res, 202, { jobId: job.id, parentRunId });
     }
     if (path.startsWith('/api/consensus/jobs/') && req.method === 'GET') {
       const job = consensusJobs.get(path.split('/').pop());
