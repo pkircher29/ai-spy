@@ -22,20 +22,6 @@ function seed() {
         launch: null, activeModel: 'claude (cli default)', models: {},
       },
       {
-        id: 'codex', name: 'Codex', runtime: 'codex-cli', role: 'code-agent',
-        endpoint: null, port: null,
-        description: 'OpenAI Codex CLI. Autonomous code generation, refactoring, code review, and batch issue fixes.',
-        launch: { cmd: '/home/paul/.local/bin/codex', args: [] },
-        activeModel: 'gpt-5-codex',
-        models: {
-          'gpt-5-codex': { role: 'coder', description: 'OpenAI flagship coding model for deep refactoring, code generation, and test suites.' }
-        },
-      
-        endpoint: null, port: null,
-        description: 'Orchestrator. Plans multi-step work, routes each step to the best local agent, and synthesizes the result. Also answers directly.',
-        launch: null, activeModel: 'claude (cli default)', models: {},
-      },
-      {
         id: 'ollama', name: 'Ollama', runtime: 'ollama',
         endpoint: 'http://127.0.0.1:11434', chatPath: '/v1/chat/completions', port: 11434,
         description: 'Local model server. Fast startup, CLI-driven, great for coding and general tasks that should stay on-device.',
@@ -126,7 +112,6 @@ export function routableModels(reg) {
   const out = [];
   for (const a of reg.agents) {
     if (a.runtime === 'claude-cli') { out.push({ agentId: a.id, agentName: a.name, model: 'sonnet', role: 'general', description: 'Claude default via CLI', endpoint: 'cli' }); continue; }
-    if (a.runtime === 'codex-cli') { out.push({ agentId: a.id, agentName: a.name, model: 'gpt-5-codex', role: 'coder', description: 'OpenAI Codex default via CLI', endpoint: 'cli' }); continue; }
     for (const [id, cfg] of Object.entries(a.models || {})) {
       if (cfg.role === 'embedding') continue;
       out.push({ agentId: a.id, agentName: a.name, model: id, role: cfg.role, description: cfg.description, endpoint: a.endpoint, sizeGB: a._sizes?.[id], running: a._running, loaded: (a._loaded || []).includes(id) });
