@@ -1,10 +1,10 @@
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { hermesInventory } from './hermes.mjs';
 
 const HOME = homedir();
 const safeJSON = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
+// statSync follows symlinks/junctions — dirent.isDirectory() is false for linked dirs (common for installed skills)
 const safeDirs = (p) => {
   try {
     return readdirSync(p).filter(n => { try { return statSync(join(p, n)).isDirectory(); } catch { return false; } });
@@ -16,8 +16,6 @@ const safeFiles = (p) => { try { return readdirSync(p, { withFileTypes: true }).
 
 function claudeInventory() {
   const base = join(HOME, '.claude');
-  if (!existsSync(base)) return null;
-
   const skills = safeDirs(join(base, 'skills'));
   const agents = safeFiles(join(base, 'agents')).filter(f => f.endsWith('.md')).map(f => f.replace('.md', ''));
   const commands = safeFiles(join(base, 'commands')).filter(f => f.endsWith('.md')).map(f => f.replace('.md', ''));
@@ -31,6 +29,7 @@ function claudeInventory() {
       const path = e?.installPath;
       const provides = [];
       if (path) {
+        // version dir may nest content under itself directly
         for (const kind of ['skills', 'agents', 'commands', 'hooks']) {
           if (existsSync(join(path, kind))) provides.push(kind);
         }
@@ -39,9 +38,16 @@ function claudeInventory() {
       }
       plugins.push({ name, marketplace, version: e?.version, installedAt: e?.installedAt, provides });
     }
+  } else {
+    // fallback: walk the cache
+    const cache = join(base, 'plugins', 'cache');
+    for (const mp of safeDirs(cache)) for (const p of safeDirs(join(cache, mp))) {
+      plugins.push({ name: p, marketplace: mp, version: null, installedAt: null, provides: [] });
+    }
   }
 
-  const mcp = new Map();
+  // MCP servers: top-level + union of per-project entries in ~/.claude.json
+  const mcp = new Map(); // name -> {scopes:[...]}
   const cj = safeJSON(join(HOME, '.claude.json'));
   if (cj) {
     for (const name of Object.keys(cj.mcpServers || {})) {
@@ -79,22 +85,9 @@ function geminiInventory() {
   const base = join(HOME, '.gemini');
   if (!existsSync(base)) return null;
   const settings = safeJSON(join(base, 'settings.json')) || {};
-  const skillsDir = join(base, 'antigravity-cli', 'builtin', 'skills');
-  const skills = existsSync(skillsDir) ? safeDirs(skillsDir) : [];
   return {
     mcpServers: Object.keys(settings.mcpServers || {}).map(name => ({ name, scopes: ['global'] })),
-    skills,
     extensions: safeDirs(join(base, 'extensions')),
-  };
-}
-
-function opencodeInventory() {
-  const base = join(HOME, '.opencode');
-  if (!existsSync(base)) return null;
-  const skills = safeDirs(join(base, 'skills'));
-  return {
-    installed: true,
-    skills
   };
 }
 
@@ -127,6 +120,7 @@ function claudeUsage() {
           const ts = rec.timestamp || null;
           if (block.name.startsWith('mcp__')) {
             const server = block.name.split('__')[1];
+            // plugin-provided servers look like plugin_<plugin>_<server>
             const pm = server?.match(/^plugin_(.+?)_/);
             if (pm) bump(usage.plugins, pm[1], ts);
             bump(usage.mcp, server, ts);
@@ -144,37 +138,26 @@ function claudeUsage() {
   return usage;
 }
 
-/* ---------- cross-harness gap & sharing recommendations ---------- */
+/* ---------- gap + staleness analysis ---------- */
 
 function analyze(inv, usage) {
   const recs = [];
   const staleDays = (u) => u?.lastUsed ? Math.floor((Date.now() - new Date(u.lastUsed)) / 86400000) : null;
 
-  // Cross-harness skill sharing recommendations
-  if (inv.hermes?.skills?.length && inv.claude) {
-    const claudeSkillSet = new Set(inv.claude.skills || []);
-    for (const hs of inv.hermes.skills) {
-      if (!claudeSkillSet.has(hs.name)) {
-        recs.push({
-          kind: 'share',
-          severity: 'medium',
-          text: `Hermes skill "${hs.name}" available — can be transmuted and shared to Claude Code / Gemini.`,
-          exec: { verb: 'deploy', source: 'hermes', target: 'claude', skill: hs.name }
-        });
-      }
+  // plugin parity between Claude Code and Codex (same marketplace format)
+  if (inv.codex) {
+    const cSet = new Set(inv.claude.plugins.map(p => p.name));
+    const xSet = new Set(inv.codex.plugins.filter(p => p.enabled).map(p => p.name));
+    for (const p of inv.claude.plugins) {
+      if (xSet.has(p.name)) continue;
+      const u = usage.plugins[p.name];
+      if (u?.count) recs.push({ kind: 'share', severity: 'high', text: `Plugin "${p.name}" used ${u.count}x in Claude Code but missing from Codex — install it there (same marketplace format).` });
     }
-  }
-
-  if (inv.claude?.skills?.length && inv.hermes) {
-    const hermesSkillSet = new Set(inv.hermes.skills.map(s => s.name));
-    for (const cs of inv.claude.skills) {
-      if (!hermesSkillSet.has(cs)) {
-        recs.push({
-          kind: 'share',
-          severity: 'medium',
-          text: `Claude skill "${cs}" available — can be transmuted and shared to Hermes / Gemini.`,
-          exec: { verb: 'deploy', source: 'claude', target: 'hermes', skill: cs }
-        });
+    for (const p of inv.codex.plugins.filter(p => p.enabled)) {
+      if (!cSet.has(p.name) && p.marketplace === 'claude-plugins-official') {
+        // enable is reversible + whitelisted; only works if installed-but-disabled, else surfaces error
+        recs.push({ kind: 'share', severity: 'low', text: `Plugin "${p.name}" enabled in Codex but not in Claude Code — try enabling it in Claude.`,
+          exec: { verb: 'enable', target: p.name, label: `enable "${p.name}" in Claude` } });
       }
     }
   }
@@ -186,31 +169,40 @@ function analyze(inv, usage) {
   }
   for (const [name, owners] of Object.entries(mcpOwners)) {
     const u = usage.mcp[name];
-    if (u?.count >= 3 && owners.length === 1) {
-      const targets = ['codex', 'gemini', 'claude'].filter(t => inv[t] && !owners.includes(t));
-      if (targets.length) {
-        recs.push({
-          kind: 'share',
-          severity: 'medium',
-          text: `MCP server "${name}" configured in ${owners.join(', ')} only — portable; can deploy to ${targets.join(' + ')}.`
-        });
-      }
+    if (u?.count >= 3 && owners.length === 1 && owners[0] === 'claude') {
+      const targets = ['codex', 'gemini'].filter(t => inv[t]);
+      if (targets.length) recs.push({ kind: 'share', severity: 'medium', text: `MCP server "${name}" used ${u.count}x in Claude Code only — MCP is portable; add to ${targets.join(' + ')}.` });
     }
   }
 
+  // staleness: installed capability never/long unused
+  for (const p of inv.claude.plugins) {
+    const u = usage.plugins[p.name];
+    const d = staleDays(u);
+    if (!u?.count) {
+      // hook-driven plugins fire outside the Skill/MCP tool surface — usage is invisible here
+      if (p.provides.includes('hooks')) recs.push({ kind: 'audit', severity: 'low', text: `Plugin "${p.name}" (Claude Code): hook-driven, usage not measurable from transcripts — judge manually.` });
+      else recs.push({ kind: 'remove', severity: 'medium', text: `Plugin "${p.name}" (Claude Code): zero recorded invocations — removal candidate.`,
+        exec: { verb: 'disable', target: p.name, label: `disable "${p.name}" in Claude` } });
+    } else if (d > 45) recs.push({ kind: 'remove', severity: 'low', text: `Plugin "${p.name}" (Claude Code): unused ${d} days.`,
+      exec: { verb: 'disable', target: p.name, label: `disable "${p.name}" in Claude` } });
+  }
+  const skillGroups = {};
+  for (const s of inv.claude.skills) skillGroups[s.split('-')[0]] = (skillGroups[s.split('-')[0]] || 0) + 1;
+  for (const [group, n] of Object.entries(skillGroups)) {
+    const used = Object.keys(usage.skills).filter(k => k.startsWith(group)).reduce((a, k) => a + usage.skills[k].count, 0);
+    if (!used && n > 1) recs.push({ kind: 'remove', severity: 'medium', text: `Skill pack "${group}-*" (${n} skills, Claude Code): zero invocations — removal candidate.` });
+  }
+  for (const s of (inv.codex?.mcpServers || [])) {
+    recs.push({ kind: 'audit', severity: 'low', text: `Codex MCP server "${s.name}": usage not trackable from here — check codex sessions if still needed.` });
+  }
   const order = { high: 0, medium: 1, low: 2 };
   recs.sort((a, b) => order[a.severity] - order[b.severity]);
   return recs;
 }
 
 export function buildCapabilities() {
-  const inv = {
-    claude: claudeInventory(),
-    codex: codexInventory(),
-    gemini: geminiInventory(),
-    hermes: hermesInventory(),
-    opencode: opencodeInventory()
-  };
+  const inv = { claude: claudeInventory(), codex: codexInventory(), gemini: geminiInventory() };
   const usage = claudeUsage();
   const recommendations = analyze(inv, usage);
   return { generatedAt: new Date().toISOString(), inventories: inv, usage, recommendations };

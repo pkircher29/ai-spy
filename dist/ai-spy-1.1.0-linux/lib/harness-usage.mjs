@@ -1,7 +1,6 @@
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { hermesUsage } from './hermes.mjs';
 
 const HOME = homedir();
 const walk = (dir, ext) => {
@@ -20,7 +19,7 @@ const walk = (dir, ext) => {
   return out;
 };
 
-// Codex sessions: ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl
+// Codex sessions: ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl, lines {timestamp,type,payload}
 function codexUsage() {
   const dir = join(HOME, '.codex', 'sessions');
   if (!existsSync(dir)) return null;
@@ -44,57 +43,40 @@ function codexUsage() {
         if (p.timestamp && (!first || p.timestamp < first)) first = p.timestamp;
       }
       if (rec.type === 'event_msg' && /task_started/.test(p.type || '')) turns++;
+      // best-effort token capture from any payload carrying usage
       const u = p.usage || p.token_usage || p.info?.usage;
       if (u) tokens += (u.total_tokens || (u.input_tokens || 0) + (u.output_tokens || 0) || 0);
     }
   }
-  return {
-    harness: 'codex',
-    sessions: files.length, turns, tokens: tokens || null, providers, byMonth,
+  return { sessions: files.length, turns, tokens: tokens || null, providers, byMonth,
     byProject: Object.fromEntries(Object.entries(byProject).sort((a, b) => b[1] - a[1]).slice(0, 8)),
     firstActivity: first, lastActivity: last ? new Date(last).toISOString() : null,
-    tokenNote: tokens ? null : 'Codex rollout logs do not record token counts locally'
-  };
+    tokenNote: tokens ? null : 'Codex rollout logs do not record token counts locally' };
 }
 
-// Antigravity (Gemini) transcripts
+// Antigravity (Gemini) transcripts: ~/.gemini/antigravity/<agent>/<uuid>/.system_generated/logs/transcript_full.jsonl
 function antigravityUsage() {
-  const base = join(HOME, '.gemini', 'antigravity-cli', 'brain');
+  const base = join(HOME, '.gemini', 'antigravity');
   if (!existsSync(base)) return null;
-  const sessions = [];
-  try {
-    const entries = readdirSync(base, { withFileTypes: true });
-    for (const e of entries) {
-      if (e.isDirectory()) {
-        const logFile = join(base, e.name, '.system_generated', 'logs', 'transcript.jsonl');
-        if (existsSync(logFile)) sessions.push(logFile);
-      }
+  const files = walk(base, 'transcript_full.jsonl');
+  let turns = 0, last = 0, first = null;
+  const sessions = new Set();
+  for (const f of files) {
+    sessions.add(f);
+    const mtime = statSync(f).mtimeMs;
+    if (mtime > last) last = mtime;
+    let text; try { text = readFileSync(f, 'utf8'); } catch { continue; }
+    for (const line of text.split('\n')) {
+      if (!line.includes('USER_INPUT')) continue;
+      turns++;
+      try { const r = JSON.parse(line); if (r.created_at && (!first || r.created_at < first)) first = r.created_at; } catch {}
     }
-  } catch {}
-
-  let turns = 0, last = 0;
-  for (const s of sessions) {
-    try {
-      const mtime = statSync(s).mtimeMs;
-      if (mtime > last) last = mtime;
-      const text = readFileSync(s, 'utf8');
-      turns += text.split('\n').filter(l => l.includes('"type":"USER_INPUT"')).length;
-    } catch {}
   }
-
-  return {
-    harness: 'gemini',
-    sessions: sessions.length,
-    turns,
+  return { sessions: sessions.size, turns, firstActivity: first,
     lastActivity: last ? new Date(last).toISOString() : null,
-    installed: true
-  };
+    tokenNote: 'Antigravity transcripts do not record token counts locally' };
 }
 
 export function buildHarnessUsage() {
-  return {
-    codex: codexUsage(),
-    antigravity: antigravityUsage(),
-    hermes: hermesUsage(),
-  };
+  return { generatedAt: new Date().toISOString(), codex: codexUsage(), antigravity: antigravityUsage() };
 }
